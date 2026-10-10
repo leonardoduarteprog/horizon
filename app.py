@@ -24,7 +24,6 @@ st.markdown("""
         color: #f8fafc;
     }
 
-    /* Trava de formato mobile centralizado (App Canvas no smartphone ou desktop) */
     .block-container {
         max-width: 480px !important;
         padding-top: 1rem !important;
@@ -34,18 +33,10 @@ st.markdown("""
         margin: 0 auto !important;
     }
 
-    /* Oculta barras padrão de site do Streamlit */
     #MainMenu, header, footer, div[data-testid="stToolbar"], section[data-testid="stSidebar"] {
         display: none !important;
     }
 
-    /* Topo do App (Header de Banco) */
-    .bank-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 6px 0 16px 0;
-    }
     .user-profile {
         display: flex;
         align-items: center;
@@ -79,7 +70,6 @@ st.markdown("""
         letter-spacing: 0.6px;
     }
 
-    /* Cartão Principal de Patrimônio (Cartão Black / Ultravioleta) */
     .hero-card {
         background: linear-gradient(145deg, #151822, #0d0f16);
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -108,7 +98,6 @@ st.markdown("""
         font-weight: 600;
     }
 
-    /* Cards de Caixinhas / Metas */
     .goal-card {
         background: #11141d;
         border: 1px solid rgba(255, 255, 255, 0.06);
@@ -143,25 +132,7 @@ st.markdown("""
         color: #ffffff;
         margin: 0;
     }
-    .goal-values {
-        display: flex;
-        justify-content: space-between;
-        font-size: 12px;
-        color: #94a3b8;
-        margin-top: 8px;
-    }
-    .goal-highlight {
-        color: #ffffff;
-        font-weight: 700;
-    }
-    .goal-footer {
-        margin-top: 6px;
-        font-size: 11px;
-        color: #38bdf8;
-        font-weight: 500;
-    }
 
-    /* Abas em Pílula (Segmented Control de App) */
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
         background-color: #11141d;
@@ -182,7 +153,6 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* Barra de Progresso Estilo Neobank */
     div[data-testid="stProgress"] > div > div > div > div {
         background: linear-gradient(90deg, #10b981, #38bdf8) !important;
         border-radius: 8px !important;
@@ -193,7 +163,6 @@ st.markdown("""
         height: 7px !important;
     }
 
-    /* Botões estilo App */
     button[kind="primary"] {
         background: linear-gradient(135deg, #10b981, #059669) !important;
         border: none !important;
@@ -212,7 +181,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- BANCO DE DADOS (SQLite) ---
+# --- BANCO DE DADOS & MIGRAÇÕES SEGURAS ---
 conn = sqlite3.connect("horizon.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -226,6 +195,13 @@ CREATE TABLE IF NOT EXISTS configuracoes (
 )
 """)
 cursor.execute("INSERT OR IGNORE INTO configuracoes (id, patrimonio_atual, aporte_mensal, renda_mensal, nome_usuario) VALUES (1, 0.0, 1500.0, 8000.0, 'Leonardo')")
+
+# Migração segura para bases criadas anteriormente sem a coluna nome_usuario
+try:
+    cursor.execute("ALTER TABLE configuracoes ADD COLUMN nome_usuario TEXT DEFAULT 'Leonardo'")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS metas (
@@ -252,26 +228,26 @@ cfg_row = cursor.fetchone()
 patrimonio_base = cfg_row[0] if cfg_row else 0.0
 aporte_base = cfg_row[1] if cfg_row else 1500.0
 renda_base = cfg_row[2] if cfg_row else 8000.0
-nome_user = cfg_row[3] if cfg_row else "Leonardo"
+nome_user = cfg_row[3] if (cfg_row and cfg_row[3]) else "Leonardo"
 
 df_metas = pd.read_sql_query("SELECT id, titulo, categoria, valor_alvo, valor_acumulado, prioridade FROM metas ORDER BY id ASC", conn)
 total_acumulado_metas = df_metas["valor_acumulado"].sum() if not df_metas.empty else 0.0
 capital_total = patrimonio_base + total_acumulado_metas
 
-# Formatação condicional ao olho mágico
 def fmt_dinheiro(valor):
     if st.session_state.mostrar_saldo:
         return f"R$ {valor:,.2f}"
     return "••••••••"
 
 # =========================================================
-# TOPO DO APLICATIVO (HEADER ESTILO NUBANK)
+# TOPO DO APLICATIVO (HEADER ESTILO BANCO DIGITAL)
 # =========================================================
 col_h1, col_h2 = st.columns([4, 1])
 with col_h1:
+    iniciais = nome_user[:2].upper() if nome_user else "LE"
     st.markdown(f"""
     <div class="user-profile">
-        <div class="avatar-circle">{nome_user[:2].upper()}</div>
+        <div class="avatar-circle">{iniciais}</div>
         <div>
             <div class="greeting-text">Olá, {nome_user} 👋</div>
             <div class="account-badge">Horizon Private</div>
@@ -304,7 +280,7 @@ tab_metas, tab_timeline, tab_tco, tab_ajustes = st.tabs([
 ])
 
 # ---------------------------------------------------------
-# ABA 1: MINHAS CAIXINHAS & METAS (ESTILO NUBANK)
+# ABA 1: MINHAS CAIXINHAS & METAS
 # ---------------------------------------------------------
 with tab_metas:
     st.markdown("##### Minhas Metas & Objetivos")
@@ -317,18 +293,18 @@ with tab_metas:
             pct = min(1.0, val_acum / val_alvo) if val_alvo > 0 else 0.0
             falta = max(0.0, val_alvo - val_acum)
 
-            # Previsão humanizada de data
             meses_faltam = max(1, int(falta / aporte_base)) if aporte_base > 0 else 0
             ano_alvo = datetime.now().year + (datetime.now().month + meses_faltam - 1) // 12
             mes_alvo = (datetime.now().month + meses_faltam - 1) % 12 + 1
             meses_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
             previsao_str = f"{meses_pt[mes_alvo - 1]} de {ano_alvo}"
+            icone_cat = row['categoria'].split()[0] if row['categoria'] else "🎯"
 
             st.markdown(f"""
             <div class="goal-card">
                 <div class="goal-header">
                     <div class="goal-title-wrap">
-                        <div class="goal-icon-circle">{row['categoria'].split()[0]}</div>
+                        <div class="goal-icon-circle">{icone_cat}</div>
                         <div>
                             <div class="goal-title">{row['titulo']}</div>
                             <div style="font-size: 11px; color: #94a3b8;">Prioridade {row['prioridade']}</div>
@@ -339,7 +315,6 @@ with tab_metas:
             </div>
             """, unsafe_allow_html=True)
 
-            # Barra de progresso nativa estilizada
             st.progress(pct)
 
             col_v1, col_v2 = st.columns(2)
@@ -351,7 +326,6 @@ with tab_metas:
             else:
                 st.caption(f"⏳ Previsão de conquista: **{previsao_str}** (~{meses_faltam} meses)")
 
-            # Aporte rápido direto na meta
             with st.expander(f"➕ Guardar dinheiro em '{row['titulo']}'"):
                 c_ap1, c_ap2 = st.columns([2, 1])
                 val_add = c_ap1.number_input("Valor a adicionar (R$)", min_value=10.0, value=200.0, step=50.0, key=f"inp_{m_id}")
@@ -367,7 +341,6 @@ with tab_metas:
 
     st.divider()
 
-    # FORMULÁRIO DE NOVA META ESTILO APP
     with st.expander("✨ Criar Nova Meta / Caixinha", expanded=df_metas.empty):
         with st.form("form_nova_meta_app", clear_on_submit=True):
             n_titulo = st.text_input("Qual é o seu objetivo?", placeholder="Ex: Entrada do HB20, Reserva, Viagem")
@@ -390,7 +363,7 @@ with tab_metas:
                     st.warning("Dê um nome para a sua meta.")
 
 # ---------------------------------------------------------
-# ABA 2: EVOLUÇÃO PATRIMONIAL (GRÁFICO FLUIDO DE BANCO)
+# ABA 2: EVOLUÇÃO PATRIMONIAL
 # ---------------------------------------------------------
 with tab_timeline:
     st.markdown("##### Projeção de Crescimento")
