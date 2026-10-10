@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime
 import plotly.graph_objects as go
 import plotly.express as px
+import textwrap
 
 # --- CONFIGURAÇÃO DA PÁGINA (MOBILE APP CANVAS) ---
 st.set_page_config(
@@ -181,28 +182,30 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- BANCO DE DADOS & MIGRAÇÕES SEGURAS ---
+# --- BANCO DE DADOS & MIGRAÇÕES BLINDADAS ---
 conn = sqlite3.connect("horizon.db", check_same_thread=False)
 cursor = conn.cursor()
 
+# 1. Cria tabela básica se não existir
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS configuracoes (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     patrimonio_atual REAL DEFAULT 0.0,
     aporte_mensal REAL DEFAULT 1500.0,
-    renda_mensal REAL DEFAULT 8000.0,
-    nome_usuario TEXT DEFAULT 'Leonardo'
+    renda_mensal REAL DEFAULT 8000.0
 )
 """)
-cursor.execute("INSERT OR IGNORE INTO configuracoes (id, patrimonio_atual, aporte_mensal, renda_mensal, nome_usuario) VALUES (1, 0.0, 1500.0, 8000.0, 'Leonardo')")
+cursor.execute("INSERT OR IGNORE INTO configuracoes (id, patrimonio_atual, aporte_mensal, renda_mensal) VALUES (1, 0.0, 1500.0, 8000.0)")
+conn.commit()
 
-# Migração segura para bases criadas anteriormente sem a coluna nome_usuario
-try:
+# 2. Garante a coluna nome_usuario ANTES de usá-la
+cursor.execute("PRAGMA table_info(configuracoes)")
+cols_cfg = [r[1] for r in cursor.fetchall()]
+if "nome_usuario" not in cols_cfg:
     cursor.execute("ALTER TABLE configuracoes ADD COLUMN nome_usuario TEXT DEFAULT 'Leonardo'")
     conn.commit()
-except sqlite3.OperationalError:
-    pass
 
+# 3. Garante a tabela metas e suas colunas
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS metas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,7 +218,13 @@ CREATE TABLE IF NOT EXISTS metas (
 """)
 conn.commit()
 
-# Session State para o Olho Mágico (Ocultar/Exibir Saldo)
+cursor.execute("PRAGMA table_info(metas)")
+cols_metas = [r[1] for r in cursor.fetchall()]
+if "prioridade" not in cols_metas:
+    cursor.execute("ALTER TABLE metas ADD COLUMN prioridade TEXT DEFAULT 'Média'")
+    conn.commit()
+
+# Session State para o Olho Mágico
 if "mostrar_saldo" not in st.session_state:
     st.session_state.mostrar_saldo = True
 
@@ -245,15 +254,15 @@ def fmt_dinheiro(valor):
 col_h1, col_h2 = st.columns([4, 1])
 with col_h1:
     iniciais = nome_user[:2].upper() if nome_user else "LE"
-    st.markdown(f"""
-    <div class="user-profile">
-        <div class="avatar-circle">{iniciais}</div>
-        <div>
-            <div class="greeting-text">Olá, {nome_user} 👋</div>
-            <div class="account-badge">Horizon Private</div>
+    st.markdown(textwrap.dedent(f"""
+        <div class="user-profile">
+            <div class="avatar-circle">{iniciais}</div>
+            <div>
+                <div class="greeting-text">Olá, {nome_user} 👋</div>
+                <div class="account-badge">Horizon Private</div>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 with col_h2:
     icone_olho = "👁️" if st.session_state.mostrar_saldo else "🙈"
     st.button(icone_olho, on_click=alternar_visibilidade, help="Ocultar ou mostrar valores")
@@ -261,13 +270,13 @@ with col_h2:
 # =========================================================
 # CARTÃO HERO DE PATRIMÔNIO (BLACK CARD)
 # =========================================================
-st.markdown(f"""
-<div class="hero-card">
-    <div class="hero-label">Patrimônio Estratégico</div>
-    <div class="hero-balance">{fmt_dinheiro(capital_total)}</div>
-    <div class="hero-subtext">⚡ Aporte mensal: {fmt_dinheiro(aporte_base)}/mês</div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(textwrap.dedent(f"""
+    <div class="hero-card">
+        <div class="hero-label">Patrimônio Estratégico</div>
+        <div class="hero-balance">{fmt_dinheiro(capital_total)}</div>
+        <div class="hero-subtext">⚡ Aporte mensal: {fmt_dinheiro(aporte_base)}/mês</div>
+    </div>
+"""), unsafe_allow_html=True)
 
 # =========================================================
 # NAVEGAÇÃO PRINCIPAL (ABAS DE APP NATIVO)
@@ -290,7 +299,7 @@ with tab_metas:
             m_id = row["id"]
             val_alvo = row["valor_alvo"]
             val_acum = row["valor_acumulado"]
-            pct = min(1.0, val_acum / val_alvo) if val_alvo > 0 else 0.0
+            pct = min(1.0, max(0.0, float(val_acum / val_alvo))) if val_alvo > 0 else 0.0
             falta = max(0.0, val_alvo - val_acum)
 
             meses_faltam = max(1, int(falta / aporte_base)) if aporte_base > 0 else 0
@@ -300,20 +309,20 @@ with tab_metas:
             previsao_str = f"{meses_pt[mes_alvo - 1]} de {ano_alvo}"
             icone_cat = row['categoria'].split()[0] if row['categoria'] else "🎯"
 
-            st.markdown(f"""
-            <div class="goal-card">
-                <div class="goal-header">
-                    <div class="goal-title-wrap">
-                        <div class="goal-icon-circle">{icone_cat}</div>
-                        <div>
-                            <div class="goal-title">{row['titulo']}</div>
-                            <div style="font-size: 11px; color: #94a3b8;">Prioridade {row['prioridade']}</div>
+            st.markdown(textwrap.dedent(f"""
+                <div class="goal-card">
+                    <div class="goal-header">
+                        <div class="goal-title-wrap">
+                            <div class="goal-icon-circle">{icone_cat}</div>
+                            <div>
+                                <div class="goal-title">{row['titulo']}</div>
+                                <div style="font-size: 11px; color: #94a3b8;">Prioridade {row['prioridade']}</div>
+                            </div>
                         </div>
+                        <span style="font-size: 12px; font-weight: 700; color: #10b981;">{pct * 100:.0f}%</span>
                     </div>
-                    <span style="font-size: 12px; font-weight: 700; color: #10b981;">{pct * 100:.0f}%</span>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
 
             st.progress(pct)
 
